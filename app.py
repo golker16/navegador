@@ -16,13 +16,11 @@ IS_WINDOWS = sys.platform.startswith("win")
 
 # ----------------- Helpers de rutas / recursos -----------------
 def get_app_dir() -> Path:
-    """Carpeta del ejecutable (PyInstaller) o del script .py."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
     return Path(__file__).parent
 
 def resource_path(rel: str) -> str:
-    """Soporta PyInstaller (_MEIPASS) y ejecución normal."""
     base = getattr(sys, "_MEIPASS", None)
     if base:
         return str(Path(base) / rel)
@@ -40,7 +38,7 @@ class Project:
         self.desc = desc
         self.exe = exe
         self.args = args or ""
-        self.icon = icon or ""  # puede ser absoluta o relativa a APP_DIR
+        self.icon = icon or ""
 
 
 # ----------------- Embedding (solo Windows) -----------------
@@ -48,7 +46,6 @@ if IS_WINDOWS:
     import win32gui, win32con, win32process
 
     def find_main_window_for_pid(pid: int, timeout_s: float = 5.0):
-        """Busca una ventana toplevel del proceso pid."""
         end = time.time() + timeout_s
         found_hwnd = None
 
@@ -73,7 +70,6 @@ if IS_WINDOWS:
 
 
 class EmbeddedAppWidget(QWidget):
-    """Lanza un .exe y (en Windows) embebe su ventana dentro de este widget."""
     def __init__(self, exe_path: str, args: str):
         super().__init__()
         self.exe_path = exe_path
@@ -165,7 +161,6 @@ class EmbeddedAppWidget(QWidget):
 
 # ----------------- Widget de la lista (tarjeta) -----------------
 def resolve_icon(icon_value: str) -> Optional[str]:
-    """Devuelve ruta absoluta existente para icono (admite relativa a APP_DIR)."""
     if not icon_value:
         return None
     p = Path(icon_value)
@@ -180,7 +175,6 @@ class ProjectListItem(QWidget):
         lay.setContentsMargins(8, 6, 8, 6)
         lay.setSpacing(10)
 
-        # Icono
         icon_abs = resolve_icon(project.icon)
         if icon_abs:
             icon_lbl = QLabel()
@@ -189,7 +183,6 @@ class ProjectListItem(QWidget):
         else:
             lay.addSpacing(32)
 
-        # Textos
         text_layout = QVBoxLayout()
         title_lbl = QLabel(project.title)
         font = QFont()
@@ -204,7 +197,6 @@ class ProjectListItem(QWidget):
         text_layout.addWidget(desc_lbl)
         lay.addLayout(text_layout)
 
-        # Estilo tipo tarjeta (con hover suave)
         self.setStyleSheet("""
             QWidget {
                 border: 1px solid #444;
@@ -225,7 +217,6 @@ class HomePage(QWidget):
         self.on_open = on_open
         self.all_projects = projects
         self.header_title = header_title or "Accesos directos"
-        self.items_cache: list[QListWidgetItem] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 0, 0)
@@ -251,7 +242,6 @@ class HomePage(QWidget):
 
     def _populate(self, projects: list[Project]):
         self.listw.clear()
-        self.items_cache.clear()
         for p in projects:
             item = QListWidgetItem()
             widget = ProjectListItem(p)
@@ -259,22 +249,15 @@ class HomePage(QWidget):
             item.setData(Qt.UserRole, p)
             self.listw.addItem(item)
             self.listw.setItemWidget(item, widget)
-            self.items_cache.append(item)
 
     def _apply_filter(self, text: str):
+        # FIX: reconstruimos la lista con los resultados (fiable)
         q = (text or "").strip().lower()
-        self.listw.clear()
         if not q:
-            for it in self.items_cache:
-                self.listw.addItem(it)
-                self.listw.setItemWidget(it, self.listw.itemWidget(it))
+            self._populate(self.all_projects)
             return
-        for it in self.items_cache:
-            proj: Project = it.data(Qt.UserRole)
-            hay = f"{proj.title} {proj.desc}".lower()
-            if q in hay:
-                self.listw.addItem(it)
-                self.listw.setItemWidget(it, self.listw.itemWidget(it))
+        filtered = [p for p in self.all_projects if q in f"{p.title} {p.desc}".lower()]
+        self._populate(filtered)
 
     def _open_selected(self):
         item = self.listw.currentItem()
@@ -292,8 +275,6 @@ class ProjectPage(QWidget):
         subtitle = QLabel(project.desc or "")
         layout.addWidget(title)
         layout.addWidget(subtitle)
-
-        # Contenedor del exe embebido
         self.splitter = QSplitter(Qt.Vertical)
         self.embed = EmbeddedAppWidget(project.exe, project.args)
         self.splitter.addWidget(self.embed)
@@ -307,7 +288,7 @@ class MainWindow(QWidget):
         self.setWindowTitle(APP_NAME)
         self.resize(1050, 720)
 
-        # Ícono de la ventana (opcional; también seteamos ícono global en main())
+        # Ícono de la ventana (además del ícono global en main())
         ico_path = Path(resource_path("assets/app.ico"))
         png_path = Path(resource_path("assets/app.png"))
         if ico_path.exists():
@@ -320,7 +301,6 @@ class MainWindow(QWidget):
 
         root = QVBoxLayout(self)
 
-        # Toolbar navegación
         toolbar = QToolBar()
         self.act_back = QAction("← Atrás", self)
         self.act_forward = QAction("Adelante →", self)
@@ -330,13 +310,11 @@ class MainWindow(QWidget):
         toolbar.addAction(self.act_forward)
         root.addWidget(toolbar)
 
-        # Stack de páginas
         self.stack = QStackedWidget()
         self.home = HomePage(projects, on_open=self.open_project, header_title=header_title)
         self.stack.addWidget(self.home)
         root.addWidget(self.stack, 1)
 
-        # Footer persistente
         footer = QLabel("© 2025 Gabriel Golker", alignment=Qt.AlignCenter)
         footer.setStyleSheet("color:#666; margin-top:6px;")
         footer.setMinimumHeight(22)
@@ -365,7 +343,6 @@ class MainWindow(QWidget):
         self._update_nav_buttons()
 
     def go_forward(self):
-        # sin pila hacia adelante por ahora
         pass
 
     def _update_nav_buttons(self):
@@ -375,7 +352,6 @@ class MainWindow(QWidget):
 
 # ----------------- Config / Carga de projects.ini -----------------
 def ensure_projects_ini(ini_path: Path) -> None:
-    """Crea un projects.ini de ejemplo si no existe."""
     if ini_path.exists():
         return
     notepad = r"C:\Windows\System32\notepad.exe"
@@ -413,11 +389,10 @@ def load_projects_from_ini(ini_path: Path):
         raise FileNotFoundError(f"No se encontró {ini_path.name}.")
     cfg.read(ini_path, encoding="utf-8")
 
-    # Acepta 'header_title' o 'title' en [General]
-    general_title = "Accesos directos"
+    header_title = "Accesos directos"
     if cfg.has_section("General"):
-        general_title = cfg.get("General", "header_title",
-                                fallback=cfg.get("General", "title", fallback="Accesos directos"))
+        header_title = cfg.get("General", "header_title",
+                               fallback=cfg.get("General", "title", fallback="Accesos directos"))
 
     projects: list[Project] = []
     for section in cfg.sections():
@@ -431,7 +406,7 @@ def load_projects_from_ini(ini_path: Path):
         if not exe:
             continue
         projects.append(Project(title, desc, exe, args, icon))
-    return general_title, projects
+    return header_title, projects
 
 
 # ----------------- Tema oscuro -----------------
@@ -448,7 +423,7 @@ def main():
     app = QApplication(sys.argv)
     ensure_dark_theme(app)
 
-    # Ícono global de la app (preferir .ico en Windows)
+    # Ícono global de la app (Windows: preferir .ico para title bar)
     ico_ico = Path(resource_path("assets/app.ico"))
     ico_png = Path(resource_path("assets/app.png"))
     if ico_ico.exists():
@@ -456,7 +431,6 @@ def main():
     elif ico_png.exists():
         app.setWindowIcon(QIcon(str(ico_png)))
 
-    # Config
     ensure_projects_ini(INI_PATH)
     try:
         header_title, projects = load_projects_from_ini(INI_PATH)
@@ -473,6 +447,7 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 
 

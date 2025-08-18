@@ -171,18 +171,29 @@ def resolve_icon(icon_value: str) -> Optional[str]:
 class ProjectListItem(QWidget):
     def __init__(self, project: Project):
         super().__init__()
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(8, 6, 8, 6)
-        lay.setSpacing(10)
 
+        # --- tarjeta contenedora ---
+        card = QWidget(self)
+        card.setObjectName("card")
+        card_lay = QHBoxLayout(card)
+        card_lay.setContentsMargins(8, 6, 8, 6)
+        card_lay.setSpacing(10)
+
+        # --- icono ---
         icon_abs = resolve_icon(project.icon)
         if icon_abs:
+            from PySide6.QtGui import QPixmap
             icon_lbl = QLabel()
-            icon_lbl.setPixmap(QIcon(icon_abs).pixmap(28, 28))
-            lay.addWidget(icon_lbl)
+            pix = QPixmap(icon_abs)
+            if not pix.isNull():
+                icon_lbl.setPixmap(pix.scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            icon_lbl.setFixedSize(32, 32)
+            icon_lbl.setAlignment(Qt.AlignCenter)
+            card_lay.addWidget(icon_lbl)
         else:
-            lay.addSpacing(32)
+            card_lay.addSpacing(32)
 
+        # --- textos ---
         text_layout = QVBoxLayout()
         title_lbl = QLabel(project.title)
         font = QFont()
@@ -195,15 +206,21 @@ class ProjectListItem(QWidget):
 
         text_layout.addWidget(title_lbl)
         text_layout.addWidget(desc_lbl)
-        lay.addLayout(text_layout)
+        card_lay.addLayout(text_layout)
 
+        # layout raíz: solo contiene la tarjeta
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(card)
+
+        # estilo aplicado SOLO a la tarjeta
         self.setStyleSheet("""
-            QWidget {
+            #card {
                 border: 1px solid #444;
                 border-radius: 8px;
                 background: transparent;
             }
-            QWidget:hover {
+            #card:hover {
                 border-color: #666;
                 background: rgba(255,255,255,0.03);
             }
@@ -251,7 +268,6 @@ class HomePage(QWidget):
             self.listw.setItemWidget(item, widget)
 
     def _apply_filter(self, text: str):
-        # FIX: reconstruimos la lista con los resultados (fiable)
         q = (text or "").strip().lower()
         if not q:
             self._populate(self.all_projects)
@@ -288,7 +304,6 @@ class MainWindow(QWidget):
         self.setWindowTitle(APP_NAME)
         self.resize(1050, 720)
 
-        # Ícono de la ventana (además del ícono global en main())
         ico_path = Path(resource_path("assets/app.ico"))
         png_path = Path(resource_path("assets/app.png"))
         if ico_path.exists():
@@ -447,6 +462,7 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 
 

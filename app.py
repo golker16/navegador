@@ -11,9 +11,25 @@ from PySide6.QtWidgets import (
 )
 
 APP_NAME = "Python Projects Launcher"
-INI_FILENAME = "projects.ini"
 
 
+# ---------- Utilidades de rutas (soporta PyInstaller) ----------
+def get_app_dir() -> Path:
+    """
+    Devuelve la carpeta donde está el ejecutable (si está congelado con PyInstaller)
+    o donde está este archivo .py si se ejecuta como script.
+    """
+    if getattr(sys, "frozen", False):  # PyInstaller
+        return Path(sys.executable).parent
+    return Path(__file__).parent
+
+
+APP_DIR = get_app_dir()
+ASSETS_DIR = APP_DIR / "assets"
+INI_PATH = APP_DIR / "projects.ini"
+
+
+# ---------- Helpers del sistema ----------
 def open_folder(path: str):
     if sys.platform.startswith("win"):
         os.startfile(path)
@@ -44,6 +60,7 @@ def open_terminal(path: str):
             subprocess.Popen(["bash"], cwd=path)
 
 
+# ---------- Modelo ----------
 class Project:
     def __init__(self, title: str, desc: str, path: str, editor_cmd: str):
         self.title = title
@@ -52,11 +69,13 @@ class Project:
         self.editor_cmd = editor_cmd
 
 
+# ---------- Vistas ----------
 class HomePage(QWidget):
     def __init__(self, projects: list[Project], on_open):
         super().__init__()
         self.on_open = on_open
         layout = QVBoxLayout(self)
+
         header = QLabel("<h2>Proyectos de Python</h2>")
         header.setTextFormat(Qt.RichText)
         layout.addWidget(header)
@@ -161,9 +180,9 @@ class MainWindow(QWidget):
         self.setWindowTitle(APP_NAME)
         self.resize(950, 650)
 
-        # Icono: usa assets/app.ico; si no hay, intenta assets/app.png
-        ico_path = Path("assets/app.ico")
-        png_path = Path("assets/app.png")
+        # Icono de ventana (assets/app.ico o assets/app.png)
+        ico_path = ASSETS_DIR / "app.ico"
+        png_path = ASSETS_DIR / "app.png"
         if ico_path.exists():
             self.setWindowIcon(QIcon(str(ico_path)))
         elif png_path.exists():
@@ -233,10 +252,56 @@ class MainWindow(QWidget):
         self.act_forward.setEnabled(bool(self.forward_stack))
 
 
+# ---------- Config: crear projects.ini de ejemplo si falta ----------
+def ensure_projects_ini(ini_path: Path) -> None:
+    if ini_path.exists():
+        return
+
+    # Carpeta base de ejemplos dentro de la carpeta del usuario
+    home = Path.home()
+    base = home / "PythonProjects_Examples"
+    proj1 = base / "Example_BPM_Converter"
+    proj2 = base / "Example_VST_Envelope_Tools"
+    proj3 = base / "Example_Data_ETL"
+
+    # Crea directorios de ejemplo (no pasa nada si ya existen)
+    for p in [proj1, proj2, proj3]:
+        p.mkdir(parents=True, exist_ok=True)
+
+    # Contenido de ejemplo
+    example_ini = f"""[General]
+editor_default=code "{{path}}"
+
+[Proyecto1]
+title=Batch BPM Converter (Ejemplo)
+desc=GUI PySide6 de ejemplo. Edita 'projects.ini' para tus rutas reales.
+path={proj1.as_posix()}
+editor=code "{{path}}"
+
+[Proyecto2]
+title=VST Envelope Tools (Ejemplo)
+desc=Proyecto de ejemplo para experimentar.
+path={proj2.as_posix()}
+
+[Proyecto3]
+title=Data ETL Scripts (Ejemplo)
+desc=Scripts y pruebas con pandas.
+path={proj3.as_posix()}
+editor=pycharm64.exe "{{path}}"
+"""
+    try:
+        ini_path.write_text(example_ini, encoding="utf-8")
+    except Exception as e:
+        # Si falla por permisos, avisa pero no detiene la app: se intentará cargar igual
+        QMessageBox.warning(None, "Aviso",
+                            f"No se pudo crear {ini_path.name} automáticamente:\n{e}\n"
+                            f"Créalo manualmente junto al ejecutable.")
+
+
 def load_projects_from_ini(ini_path: Path) -> list[Project]:
     cfg = ConfigParser()
     if not ini_path.exists():
-        raise FileNotFoundError(f"No se encontró {ini_path}. Crea uno usando el ejemplo de README.md.")
+        raise FileNotFoundError(f"No se encontró {ini_path.name}.")
     cfg.read(ini_path, encoding="utf-8")
 
     default_editor = cfg.get("General", "editor_default", fallback='code "{path}"')
@@ -262,18 +327,23 @@ def ensure_dark_theme(app: QApplication):
         except TypeError:
             app.setStyleSheet(qdarkstyle.load_stylesheet())
     except Exception:
-        # Si QDarkStyle no está disponible, sigue con el estilo por defecto
         pass
 
 
+# ---------- main ----------
 def main():
     app = QApplication(sys.argv)
     ensure_dark_theme(app)
 
+    # Si no existe projects.ini, lo generamos con ejemplos
+    ensure_projects_ini(INI_PATH)
+
     try:
-        projects = load_projects_from_ini(Path(INI_FILENAME))
+        projects = load_projects_from_ini(INI_PATH)
     except Exception as e:
-        QMessageBox.critical(None, "Error", f"No se pudo cargar {INI_FILENAME}:\n{e}")
+        QMessageBox.critical(None, "Error",
+                             f"No se pudo cargar {INI_PATH.name}:\n{e}\n"
+                             f"Revisa permisos o crea el archivo manualmente.")
         return 1
 
     w = MainWindow(projects)
@@ -283,3 +353,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

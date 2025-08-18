@@ -34,14 +34,10 @@ jobs:
         shell: pwsh
         run: |
           if ((Test-Path "assets/app.png") -and (-not (Test-Path "assets/app.ico"))) {
-            python - <<'PY'
-from PIL import Image
-img = Image.open('assets/app.png').convert('RGBA')
-img.save('assets/app.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])
-print("Converted app.png -> app.ico")
-PY
+            python -c "from PIL import Image; im=Image.open('assets/app.png').convert('RGBA'); im.save('assets/app.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+            Write-Host 'Converted app.png -> app.ico'
           } else {
-            Write-Host "ICO already present or no PNG found, skipping conversion."
+            Write-Host 'ICO already present or no PNG found, skipping conversion.'
           }
 
       - name: Build with PyInstaller (onedir, windowed)
@@ -51,8 +47,8 @@ PY
           pyinstaller --noconfirm --clean --onedir --windowed `
             --name "PythonProjectsLauncher" `
             --icon "$ico" `
-            --add-data "assets\\app.ico;assets" `
-            --add-data "assets\\app.png;assets" `
+            --add-data "assets\app.ico;assets" `
+            --add-data "assets\app.png;assets" `
             --collect-all PySide6 `
             --collect-all shiboken6 `
             app.py
@@ -74,5 +70,6 @@ PY
           path: |
             dist/PythonProjectsLauncher.zip
             dist/PythonProjectsLauncher/**
+
 
 

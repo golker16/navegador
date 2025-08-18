@@ -4,7 +4,7 @@ from configparser import ConfigParser
 from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer, QSize
-from PySide6.QtGui import QIcon, QFont
+from PySide6.QtGui import QIcon, QFont, QAction
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QLineEdit, QStackedWidget, QToolBar, QMessageBox, QSplitter

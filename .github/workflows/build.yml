@@ -19,37 +19,53 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller pillow
+
+      - name: Ensure assets folder exists
         shell: pwsh
+        run: |
+          if (-not (Test-Path "assets")) { New-Item -ItemType Directory -Path "assets" | Out-Null }
 
       - name: Convert PNG to ICO if needed
+        shell: pwsh
         run: |
           if ((Test-Path "assets/app.png") -and (-not (Test-Path "assets/app.ico"))) {
-            python -c "from PIL import Image; img=Image.open('assets/app.png'); img.save('assets/app.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
-            Write-Host "Converted app.png -> app.ico"
+            python - <<'PY'
+from PIL import Image
+img = Image.open('assets/app.png').convert('RGBA')
+img.save('assets/app.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])
+print("Converted app.png -> app.ico")
+PY
           } else {
             Write-Host "ICO already present or no PNG found, skipping conversion."
           }
-        shell: pwsh
 
       - name: Build with PyInstaller (onedir, windowed)
-        run: |
-          pyinstaller --noconfirm --clean --onedir --windowed `
-            --icon "assets/app.ico" `
-            --name "PythonProjectsLauncher" app.py
         shell: pwsh
+        run: |
+          $ico = (Test-Path "assets/app.ico") ? "assets/app.ico" : ""
+          pyinstaller --noconfirm --clean --onedir --windowed `
+            --name "PythonProjectsLauncher" `
+            --icon "$ico" `
+            --add-data "assets\\app.ico;assets" `
+            --add-data "assets\\app.png;assets" `
+            --collect-all PySide6 `
+            --collect-all shiboken6 `
+            app.py
+          Write-Host "Built tree:"; Get-ChildItem -Recurse dist
 
       - name: Zip dist folder
+        shell: pwsh
         run: |
           if (Test-Path "dist/PythonProjectsLauncher") {
             Compress-Archive -Path dist/PythonProjectsLauncher/* -DestinationPath dist/PythonProjectsLauncher.zip -Force
           } else {
             Write-Error "dist/PythonProjectsLauncher not found. PyInstaller build may have failed."
           }
-        shell: pwsh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -58,4 +74,5 @@ jobs:
           path: |
             dist/PythonProjectsLauncher.zip
             dist/PythonProjectsLauncher/**
+
 

@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QLabel, QLineEdit, QStackedWidget, QToolBar, QMessageBox, QSplitter
 )
 
-APP_NAME = "Python Projects Launcher - Embedded"
+APP_NAME = " "
 IS_WINDOWS = sys.platform.startswith("win")
 
 

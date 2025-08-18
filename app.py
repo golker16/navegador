@@ -1,10 +1,9 @@
 import sys, os, time, subprocess
 from pathlib import Path
 from configparser import ConfigParser
-from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer, QSize
-from PySide6.QtGui import QAction, QIcon, QPixmap
+from PySide6.QtGui import QAction, QIcon, QFont
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QLineEdit, QStackedWidget, QToolBar, QMessageBox, QSplitter
@@ -14,9 +13,8 @@ APP_NAME = "Python Projects Launcher - Embedded"
 IS_WINDOWS = sys.platform.startswith("win")
 
 
-# ---------- Utilidades de rutas (PyInstaller-friendly) ----------
+# ---------- Utilidades ----------
 def get_app_dir() -> Path:
-    """Carpeta del ejecutable (PyInstaller) o del script .py."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
     return Path(__file__).parent
@@ -26,22 +24,20 @@ ASSETS_DIR = APP_DIR / "assets"
 INI_PATH = APP_DIR / "projects.ini"
 
 
-# ---------- Modelo ----------
 class Project:
-    def __init__(self, title: str, desc: str, exe: str, args: str, icon_path: Optional[str] = None):
+    def __init__(self, title: str, desc: str, exe: str, args: str, icon: str = ""):
         self.title = title
         self.desc = desc
         self.exe = exe
         self.args = args or ""
-        self.icon_path = icon_path
+        self.icon = icon or ""
 
 
-# ---------- Embebido de aplicaciones (solo Windows) ----------
+# ---------- Embedding Windows ----------
 if IS_WINDOWS:
     import win32gui, win32con, win32process
 
     def find_main_window_for_pid(pid: int, timeout_s: float = 5.0):
-        """Encuentra una ventana toplevel perteneciente al proceso pid."""
         end = time.time() + timeout_s
         found_hwnd = None
 
@@ -64,12 +60,9 @@ if IS_WINDOWS:
             time.sleep(0.1)
         return found_hwnd
 
-
 class EmbeddedAppWidget(QWidget):
-    """Lanza un .exe y embece su ventana dentro de este widget (Windows)."""
     def __init__(self, exe_path: str, args: str):
         super().__init__()
-        self.setObjectName("EmbeddedAppWidget")
         self.exe_path = exe_path
         self.args = args or ""
         self.proc = None
@@ -77,8 +70,7 @@ class EmbeddedAppWidget(QWidget):
         self.setMinimumSize(QSize(300, 200))
 
         lay = QVBoxLayout(self)
-        self.info = QLabel("Cargando aplicación…")
-        self.info.setAlignment(Qt.AlignCenter)
+        self.info = QLabel("Cargando aplicación…", alignment=Qt.AlignCenter)
         self.info.setWordWrap(True)
         lay.addWidget(self.info)
 
@@ -116,8 +108,8 @@ class EmbeddedAppWidget(QWidget):
                 self.hwnd = hwnd
                 try:
                     style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-                    style = style & ~(win32con.WS_CAPTION | win32con.WS_THICKFRAME |
-                                      win32con.WS_MINIMIZEBOX | win32con.WS_MAXIMIZEBOX | win32con.WS_SYSMENU)
+                    style &= ~(win32con.WS_CAPTION | win32con.WS_THICKFRAME |
+                               win32con.WS_MINIMIZEBOX | win32con.WS_MAXIMIZEBOX | win32con.WS_SYSMENU)
                     win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, style)
                     win32gui.SetParent(hwnd, int(self.winId()))
                     self._resize_embedded()
@@ -132,9 +124,8 @@ class EmbeddedAppWidget(QWidget):
 
     def _resize_embedded(self):
         if IS_WINDOWS and self.hwnd:
-            w = max(1, self.width())
-            h = max(1, self.height())
-            import win32gui  # seguro en Windows
+            w, h = max(1, self.width()), max(1, self.height())
+            import win32gui
             win32gui.MoveWindow(self.hwnd, 0, 0, w, h, True)
 
     def resizeEvent(self, e):
@@ -157,35 +148,37 @@ class EmbeddedAppWidget(QWidget):
         super().closeEvent(e)
 
 
-# ---------- Helpers de icono ----------
-def resolve_icon_path(icon_value: Optional[str]) -> Optional[Path]:
-    """Resuelve ruta de icono. Si es relativa, la busca respecto a APP_DIR. Devuelve None si no existe."""
-    if not icon_value:
-        return None
-    p = Path(icon_value)
-    if not p.is_absolute():
-        p = (APP_DIR / p).resolve()
-    return p if p.exists() else None
+# ---------- Custom Widget para lista ----------
+class ProjectListItem(QWidget):
+    def __init__(self, project: Project):
+        super().__init__()
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(5, 5, 5, 5)
 
-def load_project_pixmap(icon_value: Optional[str]) -> Optional[QPixmap]:
-    p = resolve_icon_path(icon_value)
-    if p and p.exists():
-        pm = QPixmap(str(p))
-        if not pm.isNull():
-            return pm
-    # fallback a assets/app.png/ico si existen
-    if (ASSETS_DIR / "app.png").exists():
-        fb = QPixmap(str(ASSETS_DIR / "app.png"))
-        if not fb.isNull():
-            return fb
-    if (ASSETS_DIR / "app.ico").exists():
-        fb = QPixmap(str(ASSETS_DIR / "app.ico"))
-        if not fb.isNull():
-            return fb
-    return None
+        # Icono
+        if project.icon and Path(project.icon).exists():
+            icon_lbl = QLabel()
+            icon_lbl.setPixmap(QIcon(project.icon).pixmap(32, 32))
+            lay.addWidget(icon_lbl)
+        else:
+            lay.addSpacing(36)
+
+        text_layout = QVBoxLayout()
+        title_lbl = QLabel(project.title)
+        font = QFont()
+        font.setPointSize(11)
+        font.setBold(True)
+        title_lbl.setFont(font)
+
+        desc_lbl = QLabel(project.desc or "")
+        desc_lbl.setStyleSheet("color: #aaa; font-size: 9pt;")
+
+        text_layout.addWidget(title_lbl)
+        text_layout.addWidget(desc_lbl)
+        lay.addLayout(text_layout)
 
 
-# ---------- UI: Home y ProjectPage ----------
+# ---------- UI ----------
 class HomePage(QWidget):
     def __init__(self, projects: list[Project], on_open, header_title: str = "Accesos directos"):
         super().__init__()
@@ -195,12 +188,9 @@ class HomePage(QWidget):
 
         layout = QVBoxLayout(self)
 
-        # Encabezado configurable
         header = QLabel(f"<h2>{self.header_title}</h2>")
-        header.setTextFormat(Qt.RichText)
         layout.addWidget(header)
 
-        # Buscador en tiempo real
         search_row = QHBoxLayout()
         self.search = QLineEdit()
         self.search.setPlaceholderText("Buscar por título o descripción…")
@@ -209,75 +199,33 @@ class HomePage(QWidget):
         search_row.addWidget(self.search)
         layout.addLayout(search_row)
 
-        # Lista de proyectos (doble click para abrir)
         self.listw = QListWidget()
         self.listw.itemDoubleClicked.connect(self._open_selected)
         layout.addWidget(self.listw)
+
+        # Footer
+        footer = QLabel("© 2025 Gabriel Golker", alignment=Qt.AlignCenter)
+        footer.setStyleSheet("color: #666; margin-top: 6px;")
+        layout.addWidget(footer)
 
         self._populate(self.all_projects)
 
     def _populate(self, projects: list[Project]):
         self.listw.clear()
         for p in projects:
-            # Contenido rich: título grande/negrita + descripción
-            title_html = f"<b style='font-size:12pt'>{p.title}</b>"
-            desc_html = f"<span style='color:gray'>{p.desc}</span>" if p.desc else ""
-            text_html = f"{title_html}<br>{desc_html}" if desc_html else title_html
-
-            # Item contenedor (datos)
             item = QListWidgetItem()
+            widget = ProjectListItem(p)
+            item.setSizeHint(widget.sizeHint())
             item.setData(Qt.UserRole, p)
-            # tamaño mínimo para que respire
-            item.setSizeHint(QSize(item.sizeHint().width(), 60))
-
-            # Widget visual por item
-            row = QWidget()
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(6, 6, 6, 6)
-            row_layout.setSpacing(10)
-
-            # Icono (24x24)
-            icon_label = QLabel()
-            pm = load_project_pixmap(p.icon_path)
-            if pm:
-                icon_label.setPixmap(pm.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            icon_label.setFixedSize(28, 28)  # un poco más para margen
-            icon_label.setAlignment(Qt.AlignCenter)
-
-            # Texto
-            text_label = QLabel(text_html)
-            text_label.setTextFormat(Qt.RichText)
-            text_label.setWordWrap(True)
-
-            row_layout.addWidget(icon_label)
-            row_layout.addWidget(text_label, 1)
-
-            # Estilo “tarjeta”
-            row.setStyleSheet("""
-                QWidget {
-                    border: 1px solid #444;
-                    border-radius: 8px;
-                    padding: 4px;
-                }
-                QWidget:hover {
-                    border-color: #666;
-                    background: rgba(255,255,255,0.03);
-                }
-            """)
-
             self.listw.addItem(item)
-            self.listw.setItemWidget(item, row)
+            self.listw.setItemWidget(item, widget)
 
     def _apply_filter(self, text: str):
         q = (text or "").strip().lower()
         if not q:
             self._populate(self.all_projects)
             return
-        filtered = []
-        for p in self.all_projects:
-            haystack = f"{p.title} {p.desc}".lower()
-            if q in haystack:
-                filtered.append(p)
+        filtered = [p for p in self.all_projects if q in f"{p.title} {p.desc}".lower()]
         self._populate(filtered)
 
     def _open_selected(self):
@@ -291,31 +239,23 @@ class HomePage(QWidget):
 class ProjectPage(QWidget):
     def __init__(self, project: Project):
         super().__init__()
-        self.project = project
         layout = QVBoxLayout(self)
-
-        # Solo título y descripción (sin ruta del exe)
         title = QLabel(f"<h2>{project.title}</h2>")
-        title.setTextFormat(Qt.RichText)
         subtitle = QLabel(project.desc or "")
         layout.addWidget(title)
         layout.addWidget(subtitle)
-
-        # Contenedor para embeber la app
         self.splitter = QSplitter(Qt.Vertical)
         self.embed = EmbeddedAppWidget(project.exe, project.args)
         self.splitter.addWidget(self.embed)
         layout.addWidget(self.splitter)
 
 
-# ---------- Ventana principal ----------
 class MainWindow(QWidget):
     def __init__(self, projects: list[Project], header_title: str):
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.resize(1050, 700)
 
-        # Icono de la ventana (assets/app.ico o assets/app.png)
         ico_path = ASSETS_DIR / "app.ico"
         png_path = ASSETS_DIR / "app.png"
         if ico_path.exists():
@@ -328,17 +268,14 @@ class MainWindow(QWidget):
 
         root = QVBoxLayout(self)
 
-        # Toolbar navegación (sin texto extra)
         toolbar = QToolBar()
         self.act_back = QAction("← Atrás", self)
         self.act_forward = QAction("Adelante →", self)
         self.act_back.triggered.connect(self.go_back)
-        self.act_forward.triggered.connect(self.go_forward)
         toolbar.addAction(self.act_back)
         toolbar.addAction(self.act_forward)
         root.addWidget(toolbar)
 
-        # Stack de páginas
         self.stack = QStackedWidget()
         self.home = HomePage(projects, on_open=self.open_project, header_title=header_title)
         self.stack.addWidget(self.home)
@@ -359,7 +296,6 @@ class MainWindow(QWidget):
             return
         current = self.stack.currentIndex()
         prev = self.back_stack.pop()
-        # cierra la página actual (matar exe embebido)
         widget = self.stack.widget(current)
         self.stack.removeWidget(widget)
         widget.deleteLater()
@@ -367,7 +303,6 @@ class MainWindow(QWidget):
         self._update_nav_buttons()
 
     def go_forward(self):
-        # No mantenemos pila hacia adelante por ahora
         pass
 
     def _update_nav_buttons(self):
@@ -375,12 +310,10 @@ class MainWindow(QWidget):
         self.act_forward.setEnabled(False)
 
 
-# ---------- Config / Autogeneración ----------
+# ---------- Config ----------
 def ensure_projects_ini(ini_path: Path) -> None:
-    """Crea un projects.ini de ejemplo si no existe."""
     if ini_path.exists():
         return
-    # ejemplos seguros en Windows
     notepad = r"C:\Windows\System32\notepad.exe"
     calc = r"C:\Windows\System32\calc.exe"
     mspaint = r"C:\Windows\System32\mspaint.exe"
@@ -392,30 +325,28 @@ header_title=Accesos directos
 title=Bloc de notas (ejemplo)
 desc=Ejemplo de app Win32 sencilla embebida.
 exe={notepad}
+icon={ASSETS_DIR}\\notepad.png
 args=
-icon=
 
 [Proyecto2]
 title=Calculadora (ejemplo)
 desc=Según versión puede abrir externo.
 exe={calc}
+icon={ASSETS_DIR}\\calc.png
 args=
-icon=
 
 [Proyecto3]
 title=Paint (ejemplo)
 desc=Otro ejemplo Win32 clásico.
 exe={mspaint}
+icon={ASSETS_DIR}\\paint.png
 args=
-icon=
 """
     ini_path.write_text(example_ini, encoding="utf-8")
 
 
 def load_projects_from_ini(ini_path: Path):
     cfg = ConfigParser()
-    if not ini_path.exists():
-        raise FileNotFoundError(f"No se encontró {ini_path.name}.")
     cfg.read(ini_path, encoding="utf-8")
 
     header_title = cfg.get("General", "header_title", fallback="Accesos directos")
@@ -425,39 +356,32 @@ def load_projects_from_ini(ini_path: Path):
         if section == "General":
             continue
         title = cfg.get(section, "title", fallback=section)
-        desc  = cfg.get(section, "desc",  fallback="")
-        exe   = cfg.get(section, "exe",   fallback="")
-        args  = cfg.get(section, "args",  fallback="")
-        icon  = cfg.get(section, "icon",  fallback=None)
+        desc = cfg.get(section, "desc", fallback="")
+        exe = cfg.get(section, "exe", fallback="")
+        args = cfg.get(section, "args", fallback="")
+        icon = cfg.get(section, "icon", fallback="")
         if not exe:
             continue
-        projects.append(Project(title, desc, exe, args, icon_path=icon))
+        projects.append(Project(title, desc, exe, args, icon))
     return header_title, projects
 
 
 def ensure_dark_theme(app: QApplication):
     try:
         import qdarkstyle
-        try:
-            app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api="pyside6"))
-        except TypeError:
-            app.setStyleSheet(qdarkstyle.load_stylesheet())
+        app.setStyleSheet(qdarkstyle.load_stylesheet(qt_api="pyside6"))
     except Exception:
         pass
 
 
-# ---------- main ----------
 def main():
     app = QApplication(sys.argv)
     ensure_dark_theme(app)
 
-    # Genera ini con ejemplos si no existe
     ensure_projects_ini(INI_PATH)
 
     try:
         header_title, projects = load_projects_from_ini(INI_PATH)
-        if not projects:
-            raise RuntimeError("projects.ini no contiene proyectos válidos (faltan 'exe=').")
     except Exception as e:
         QMessageBox.critical(None, "Error", f"No se pudo cargar {INI_PATH.name}:\n{e}")
         return 1

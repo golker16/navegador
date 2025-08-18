@@ -153,16 +153,18 @@ class ProjectListItem(QWidget):
     def __init__(self, project: Project):
         super().__init__()
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(5, 5, 5, 5)
+        lay.setContentsMargins(8, 6, 8, 6)
+        lay.setSpacing(10)
 
         # Icono
         if project.icon and Path(project.icon).exists():
             icon_lbl = QLabel()
-            icon_lbl.setPixmap(QIcon(project.icon).pixmap(32, 32))
+            icon_lbl.setPixmap(QIcon(project.icon).pixmap(28, 28))
             lay.addWidget(icon_lbl)
         else:
-            lay.addSpacing(36)
+            lay.addSpacing(32)
 
+        # Textos
         text_layout = QVBoxLayout()
         title_lbl = QLabel(project.title)
         font = QFont()
@@ -176,6 +178,19 @@ class ProjectListItem(QWidget):
         text_layout.addWidget(title_lbl)
         text_layout.addWidget(desc_lbl)
         lay.addLayout(text_layout)
+
+        # Estilo tipo tarjeta
+        self.setStyleSheet("""
+            ProjectListItem, QWidget#itemCard {
+                border: 1px solid #444;
+                border-radius: 8px;
+                background: transparent;
+            }
+            ProjectListItem:hover, QWidget#itemCard:hover {
+                border-color: #666;
+                background: rgba(255,255,255,0.03);
+            }
+        """)
 
 
 # ---------- UI ----------
@@ -202,11 +217,6 @@ class HomePage(QWidget):
         self.listw = QListWidget()
         self.listw.itemDoubleClicked.connect(self._open_selected)
         layout.addWidget(self.listw)
-
-        # Footer
-        footer = QLabel("© 2025 Gabriel Golker", alignment=Qt.AlignCenter)
-        footer.setStyleSheet("color: #666; margin-top: 6px;")
-        layout.addWidget(footer)
 
         self._populate(self.all_projects)
 
@@ -254,8 +264,9 @@ class MainWindow(QWidget):
     def __init__(self, projects: list[Project], header_title: str):
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.resize(1050, 700)
+        self.resize(1050, 720)
 
+        # Icono app
         ico_path = ASSETS_DIR / "app.ico"
         png_path = ASSETS_DIR / "app.png"
         if ico_path.exists():
@@ -268,18 +279,26 @@ class MainWindow(QWidget):
 
         root = QVBoxLayout(self)
 
+        # Toolbar navegación
         toolbar = QToolBar()
         self.act_back = QAction("← Atrás", self)
         self.act_forward = QAction("Adelante →", self)
         self.act_back.triggered.connect(self.go_back)
+        self.act_forward.triggered.connect(self.go_forward)
         toolbar.addAction(self.act_back)
         toolbar.addAction(self.act_forward)
         root.addWidget(toolbar)
 
+        # Stack de páginas
         self.stack = QStackedWidget()
         self.home = HomePage(projects, on_open=self.open_project, header_title=header_title)
         self.stack.addWidget(self.home)
-        root.addWidget(self.stack)
+        root.addWidget(self.stack, 1)  # que crezca
+
+        # Footer PERSISTENTE (siempre visible)
+        footer = QLabel("© 2025 Gabriel Golker", alignment=Qt.AlignCenter)
+        footer.setStyleSheet("color:#666; margin-top:6px;")
+        root.addWidget(footer)
 
         self._update_nav_buttons()
 
@@ -325,21 +344,21 @@ header_title=Accesos directos
 title=Bloc de notas (ejemplo)
 desc=Ejemplo de app Win32 sencilla embebida.
 exe={notepad}
-icon={ASSETS_DIR}\\notepad.png
+icon=
 args=
 
 [Proyecto2]
 title=Calculadora (ejemplo)
 desc=Según versión puede abrir externo.
 exe={calc}
-icon={ASSETS_DIR}\\calc.png
+icon=
 args=
 
 [Proyecto3]
 title=Paint (ejemplo)
 desc=Otro ejemplo Win32 clásico.
 exe={mspaint}
-icon={ASSETS_DIR}\\paint.png
+icon=
 args=
 """
     ini_path.write_text(example_ini, encoding="utf-8")
@@ -393,6 +412,7 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 
 

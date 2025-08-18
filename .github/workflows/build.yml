@@ -1,0 +1,59 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Convert PNG to ICO if needed
+        run: |
+          if (Test-Path assets/app.png -and -not (Test-Path assets/app.ico)) {
+            python - <<'PYCODE'
+from PIL import Image
+img = Image.open("assets/app.png")
+# Guardamos en multi-size para mejor soporte
+sizes = [(16,16),(32,32),(48,48),(64,64), (128,128), (256,256)]
+img.save("assets/app.ico", sizes=sizes)
+print("Converted app.png -> app.ico")
+PYCODE
+          }
+        shell: pwsh
+
+      - name: Build with PyInstaller (onedir, windowed)
+        run: |
+          pyinstaller --noconfirm --clean --onedir --windowed `
+            --icon "assets/app.ico" `
+            --name "PythonProjectsLauncher" app.py
+        shell: pwsh
+
+      - name: Zip dist folder
+        run: |
+          Compress-Archive -Path dist/PythonProjectsLauncher/* -DestinationPath dist/PythonProjectsLauncher.zip
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PythonProjectsLauncher_Windows
+          path: |
+            dist/PythonProjectsLauncher.zip
+            dist/PythonProjectsLauncher/**

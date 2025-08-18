@@ -1,12 +1,12 @@
-import sys, os, time, subprocess, shutil, ctypes
+import sys, os, time, subprocess
 from pathlib import Path
 from configparser import ConfigParser
 
-from PySide6.QtCore import Qt, QDir, QTimer, QSize
+from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-    QLabel, QPushButton, QStackedWidget, QToolBar, QMessageBox, QSplitter
+    QLabel, QLineEdit, QStackedWidget, QToolBar, QMessageBox, QSplitter
 )
 
 APP_NAME = "Python Projects Launcher - Embedded"
@@ -38,7 +38,6 @@ if IS_WINDOWS:
     import win32gui, win32con, win32process
 
     def find_main_window_for_pid(pid: int, timeout_s: float = 5.0):
-        """Busca una ventana toplevel cuyo owner sea el proceso pid."""
         end = time.time() + timeout_s
         found_hwnd = None
 
@@ -48,7 +47,6 @@ if IS_WINDOWS:
                 return True
             _, wpid = win32process.GetWindowThreadProcessId(hwnd)
             if wpid == pid:
-                # Ignora ventanas hijos/tool; preferimos ventanas con WS_OVERLAPPED
                 style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
                 if style & win32con.WS_OVERLAPPEDWINDOW or style & win32con.WS_CAPTION:
                     found_hwnd = hwnd
@@ -63,7 +61,7 @@ if IS_WINDOWS:
         return found_hwnd
 
 class EmbeddedAppWidget(QWidget):
-    """Contenedor que lanza un .exe y re-parenta su ventana adentro de este widget (Windows)."""
+    """Lanza un .exe y embece su ventana dentro de este widget (Windows)."""
     def __init__(self, exe_path: str, args: str):
         super().__init__()
         self.setObjectName("EmbeddedAppWidget")
@@ -84,7 +82,6 @@ class EmbeddedAppWidget(QWidget):
             self.launch_external()
             return
 
-        # Lanza proceso
         self.launch_and_embed()
 
     def launch_external(self):
@@ -96,11 +93,9 @@ class EmbeddedAppWidget(QWidget):
             self.info.setText(f"Error lanzando app externa:\n{e}")
 
     def launch_and_embed(self):
-        # Verifica .exe
         if not os.path.isfile(self.exe_path):
             self.info.setText(f"No se encontró el ejecutable:\n{self.exe_path}")
             return
-
         try:
             cmd = [self.exe_path] + ([a for a in self.args.split(" ") if a] if self.args else [])
             self.proc = subprocess.Popen(cmd, shell=False, cwd=os.path.dirname(self.exe_path) or None)
@@ -108,7 +103,6 @@ class EmbeddedAppWidget(QWidget):
             self.info.setText(f"No se pudo lanzar el proceso:\n{e}")
             return
 
-        # Buscar ventana y re-parent
         def try_embed():
             if not IS_WINDOWS or not self.proc:
                 return
@@ -116,9 +110,9 @@ class EmbeddedAppWidget(QWidget):
             if hwnd:
                 self.hwnd = hwnd
                 try:
-                    # Remueve borde/título y pone como hijo de este widget
                     style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-                    style = style & ~(win32con.WS_CAPTION | win32con.WS_THICKFRAME | win32con.WS_MINIMIZEBOX | win32con.WS_MAXIMIZEBOX | win32con.WS_SYSMENU)
+                    style = style & ~(win32con.WS_CAPTION | win32con.WS_THICKFRAME |
+                                      win32con.WS_MINIMIZEBOX | win32con.WS_MAXIMIZEBOX | win32con.WS_SYSMENU)
                     win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, style)
                     win32gui.SetParent(hwnd, int(self.winId()))
                     self._resize_embedded()
@@ -127,16 +121,15 @@ class EmbeddedAppWidget(QWidget):
                 except Exception as e:
                     self.info.setText(f"No se pudo embeber la ventana:\n{e}")
 
-        # Intenta varias veces hasta que aparezca la ventana
         timer = QTimer(self)
         timer.timeout.connect(try_embed)
         timer.start(100)
 
     def _resize_embedded(self):
         if IS_WINDOWS and self.hwnd:
-            # Ajusta tamaño para ocupar todo el contenedor
             w = max(1, self.width())
             h = max(1, self.height())
+            import win32gui  # seguro en Windows
             win32gui.MoveWindow(self.hwnd, 0, 0, w, h, True)
 
     def resizeEvent(self, e):
@@ -145,11 +138,9 @@ class EmbeddedAppWidget(QWidget):
             self._resize_embedded()
 
     def closeEvent(self, e):
-        # Cierra proceso embebido al salir de la página
         try:
             if self.proc and self.proc.poll() is None:
                 self.proc.terminate()
-                # Por si no cierra rápido:
                 for _ in range(20):
                     if self.proc.poll() is not None:
                         break
@@ -163,29 +154,54 @@ class EmbeddedAppWidget(QWidget):
 
 # ---------- UI: Home y ProjectPage ----------
 class HomePage(QWidget):
-    def __init__(self, projects: list[Project], on_open):
+    def __init__(self, projects: list[Project], on_open, header_title: str = "Accesos directos"):
         super().__init__()
         self.on_open = on_open
+        self.all_projects = projects
+        self.header_title = header_title or "Accesos directos"
+
         layout = QVBoxLayout(self)
-        header = QLabel("<h2>Accesos directos</h2>")
+
+        # Encabezado configurable
+        header = QLabel(f"<h2>{self.header_title}</h2>")
         header.setTextFormat(Qt.RichText)
         layout.addWidget(header)
 
+        # Buscador en tiempo real
+        search_row = QHBoxLayout()
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Buscar por título o descripción…")
+        self.search.textChanged.connect(self._apply_filter)
+        search_row.addWidget(QLabel("Buscar:"))
+        search_row.addWidget(self.search)
+        layout.addLayout(search_row)
+
+        # Lista de proyectos (doble click para abrir)
         self.listw = QListWidget()
-        for p in projects:
-            item = QListWidgetItem(f"{p.title}\n{p.desc}")
-            item.setData(Qt.UserRole, p)
-            item.setToolTip(p.exe + (f" {p.args}" if p.args else ""))
-            self.listw.addItem(item)
         self.listw.itemDoubleClicked.connect(self._open_selected)
         layout.addWidget(self.listw)
 
-        row = QHBoxLayout()
-        open_btn = QPushButton("Abrir seleccionado")
-        open_btn.clicked.connect(self._open_selected)
-        row.addWidget(open_btn)
-        row.addStretch(1)
-        layout.addLayout(row)
+        self._populate(self.all_projects)
+
+    def _populate(self, projects: list[Project]):
+        self.listw.clear()
+        for p in projects:
+            item = QListWidgetItem(f"{p.title}\n{p.desc}")
+            item.setData(Qt.UserRole, p)
+            item.setToolTip((p.title or "") + (" — " if p.title and p.desc else "") + (p.desc or ""))
+            self.listw.addItem(item)
+
+    def _apply_filter(self, text: str):
+        q = (text or "").strip().lower()
+        if not q:
+            self._populate(self.all_projects)
+            return
+        filtered = []
+        for p in self.all_projects:
+            haystack = f"{p.title} {p.desc}".lower()
+            if q in haystack:
+                filtered.append(p)
+        self._populate(filtered)
 
     def _open_selected(self):
         item = self.listw.currentItem()
@@ -201,14 +217,12 @@ class ProjectPage(QWidget):
         self.project = project
         layout = QVBoxLayout(self)
 
+        # Solo título y descripción (sin ruta del exe)
         title = QLabel(f"<h2>{project.title}</h2>")
         title.setTextFormat(Qt.RichText)
-        subtitle = QLabel(project.desc)
-        exe_lbl = QLabel(f"<code>{project.exe} {project.args}</code>")
-        exe_lbl.setTextFormat(Qt.RichText)
+        subtitle = QLabel(project.desc or "")
         layout.addWidget(title)
         layout.addWidget(subtitle)
-        layout.addWidget(exe_lbl)
 
         # Contenedor para embeber la app
         self.splitter = QSplitter(Qt.Vertical)
@@ -219,7 +233,7 @@ class ProjectPage(QWidget):
 
 # ---------- Ventana principal ----------
 class MainWindow(QWidget):
-    def __init__(self, projects: list[Project]):
+    def __init__(self, projects: list[Project], header_title: str):
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.resize(1050, 700)
@@ -237,7 +251,7 @@ class MainWindow(QWidget):
 
         root = QVBoxLayout(self)
 
-        # Toolbar navegación
+        # Toolbar navegación (sin texto/botón a la derecha)
         toolbar = QToolBar()
         self.act_back = QAction("← Atrás", self)
         self.act_forward = QAction("Adelante →", self)
@@ -245,15 +259,11 @@ class MainWindow(QWidget):
         self.act_forward.triggered.connect(self.go_forward)
         toolbar.addAction(self.act_back)
         toolbar.addAction(self.act_forward)
-        toolbar.addSeparator()
-        title_lbl = QLabel(f"<b>{APP_NAME}</b>")
-        title_lbl.setTextFormat(Qt.RichText)
-        toolbar.addWidget(title_lbl)
         root.addWidget(toolbar)
 
         # Stack de páginas
         self.stack = QStackedWidget()
-        self.home = HomePage(projects, on_open=self.open_project)
+        self.home = HomePage(projects, on_open=self.open_project, header_title=header_title)
         self.stack.addWidget(self.home)
         root.addWidget(self.stack)
 
@@ -277,41 +287,33 @@ class MainWindow(QWidget):
             return
         current = self.stack.currentIndex()
         prev = self.back_stack.pop()
-        # Cerrar página actual (para matar el exe embebido)
+        # cerrar página actual (para matar el exe embebido)
         widget = self.stack.widget(current)
         self.stack.removeWidget(widget)
         widget.deleteLater()
-        self.forward_stack.append(prev)
         self.stack.setCurrentIndex(prev)
         self._update_nav_buttons()
 
     def go_forward(self):
-        # En este diseño, “adelante” solo es útil si regresaste desde una página viva.
-        if not self.forward_stack:
-            return
-        idx = self.forward_stack.pop()
-        self.back_stack.append(self.stack.currentIndex())
-        self.stack.setCurrentIndex(idx)
-        self._update_nav_buttons()
+        # Mantengo esqueleto por si más adelante guardamos páginas futuras.
+        pass
 
     def _update_nav_buttons(self):
         self.act_back.setEnabled(bool(self.back_stack))
-        self.act_forward.setEnabled(bool(self.forward_stack))
+        self.act_forward.setEnabled(False)  # no guardamos pila hacia adelante por ahora
 
 
 # ---------- Config / Autogeneración ----------
 def ensure_projects_ini(ini_path: Path) -> None:
     if ini_path.exists():
         return
-    # Ejemplos apuntando a notepad y calc (están en Windows)
-    # Ajusta con tus .exe reales.
+    # ejemplos seguros en Windows
     notepad = r"C:\Windows\System32\notepad.exe"
     calc = r"C:\Windows\System32\calc.exe"
     mspaint = r"C:\Windows\System32\mspaint.exe"
 
     example_ini = f"""[General]
-; Este launcher embebe .exe en Windows. Para cada proyecto define:
-; title, desc, exe=RUTA COMPLETA AL .EXE, args=argumentos opcionales
+header_title=Accesos directos
 
 [Proyecto1]
 title=Bloc de notas (ejemplo)
@@ -321,7 +323,7 @@ args=
 
 [Proyecto2]
 title=Calculadora (ejemplo)
-desc=Puede comportarse como app embebida, según versión de Windows.
+desc=Según versión puede abrir externo.
 exe={calc}
 args=
 
@@ -334,13 +336,15 @@ args=
     ini_path.write_text(example_ini, encoding="utf-8")
 
 
-def load_projects_from_ini(ini_path: Path) -> list[Project]:
+def load_projects_from_ini(ini_path: Path):
     cfg = ConfigParser()
     if not ini_path.exists():
         raise FileNotFoundError(f"No se encontró {ini_path.name}.")
     cfg.read(ini_path, encoding="utf-8")
 
-    projects: list[Project] = []
+    header_title = cfg.get("General", "header_title", fallback="Accesos directos")
+
+    projects = []
     for section in cfg.sections():
         if section == "General":
             continue
@@ -351,7 +355,7 @@ def load_projects_from_ini(ini_path: Path) -> list[Project]:
         if not exe:
             continue
         projects.append(Project(title, desc, exe, args))
-    return projects
+    return header_title, projects
 
 
 def ensure_dark_theme(app: QApplication):
@@ -370,23 +374,23 @@ def main():
     app = QApplication(sys.argv)
     ensure_dark_theme(app)
 
-    # Genera ini con ejemplos si no existe
     ensure_projects_ini(INI_PATH)
 
     try:
-        projects = load_projects_from_ini(INI_PATH)
+        header_title, projects = load_projects_from_ini(INI_PATH)
         if not projects:
             raise RuntimeError("projects.ini no contiene proyectos válidos (faltan 'exe=').")
     except Exception as e:
         QMessageBox.critical(None, "Error", f"No se pudo cargar {INI_PATH.name}:\n{e}")
         return 1
 
-    w = MainWindow(projects)
+    w = MainWindow(projects, header_title=header_title)
     w.show()
     return app.exec()
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 
 

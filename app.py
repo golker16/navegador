@@ -302,7 +302,7 @@ class MainWindow(QWidget):
     def __init__(self, projects: list[Project], header_title: str):
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.resize(1050, 720)
+        self.resize(570, 760)
 
         ico_path = Path(resource_path("assets/app.ico"))
         png_path = Path(resource_path("assets/app.png"))
